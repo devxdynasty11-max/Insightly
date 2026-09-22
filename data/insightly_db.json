@@ -1,0 +1,78 @@
+{
+  "websites": [
+    {
+      "id": "41016eed-3756-4a48-a852-2f21e97cdb6b",
+      "name": "ORBIT",
+      "domain": "orbit.example",
+      "site_id": "site_c6992675",
+      "tracking_key_hash": "ea6bb2f700fc186742df41d4a594d529c3f182d8dcfcfc7adc66840fb49c8469",
+      "dashboard_key_hash": "d7901a710d117b88a3011cd673ac32c26c9ff673582b815029e091dded8cd9eb",
+      "created_at": "2026-09-22T17:53:02.112Z"
+    },
+    {
+      "id": "c5717d8f-b0d1-4842-8142-a1be00586682",
+      "name": "ORBIT TEST",
+      "domain": "orbit-test.example",
+      "site_id": "site_d8fa69f3",
+      "tracking_key_hash": "2d7536ae64e0a7e54f0c916af9960eeb1a07efa7220ca6f8db7591f7658aee2b",
+      "dashboard_key_hash": "dad2683c8b6ddc074fb921e1e306a4245a029fca501226da74d2a1af3cc6852d",
+      "created_at": "2026-09-22T17:53:05.516Z"
+    }
+  ],
+  "visitors": [
+    {
+      "id": "7ef14849-93e5-4b92-b474-7732e3fa4896",
+      "site_id": "site_d8fa69f3",
+      "anonymous_id": "anon_test_1",
+      "first_seen": "2026-09-22T17:53:05.531Z",
+      "last_seen": "2026-09-22T17:53:05.531Z",
+      "country": "United States",
+      "region": "NA",
+      "device_type": "desktop",
+      "browser": "Chrome",
+      "os": "macOS"
+    }
+  ],
+  "sessions": [
+    {
+      "id": "7fb10c56-cd4b-4401-bc62-df483194acd2",
+      "site_id": "site_d8fa69f3",
+      "visitor_id": "7ef14849-93e5-4b92-b474-7732e3fa4896",
+      "session_id": "sess_test_1",
+      "started_at": "2026-09-22T17:53:05.531Z",
+      "last_activity": "2026-09-22T17:53:05.531Z",
+      "landing_page": "/",
+      "exit_page": "/",
+      "duration": 0,
+      "pageview_count": 1
+    }
+  ],
+  "pageviews": [
+    {
+      "id": "b9b324ee-c849-476f-b481-d1547de838ea",
+      "site_id": "site_d8fa69f3",
+      "visitor_id": "7ef14849-93e5-4b92-b474-7732e3fa4896",
+      "session_id": "sess_test_1",
+      "url": "https://orbit-test.example/",
+      "path": "/",
+      "title": "ORBIT TEST — Home",
+      "referrer": "https://google.com/search?q=orbit",
+      "referrer_domain": "google.com",
+      "created_at": "2026-09-22T17:53:05.531Z"
+    }
+  ],
+  "events": [],
+  "daily_stats": [
+    {
+      "id": "3b76782e-695c-42b9-9f37-80d27777d8ca",
+      "site_id": "site_d8fa69f3",
+      "date": "2026-09-22",
+      "visitors": 1,
+      "sessions": 1,
+      "pageviews": 1,
+      "bounce_rate": 100,
+      "avg_session_duration": 0
+    }
+  ],
+  "milestones": []
+}

@@ -1,0 +1,6 @@
+{
+  "name": "INSIGHTLY",
+  "description": "Know your visitors. Understand your growth. Privacy-conscious, real-time website analytics platform with lightweight tracking and project-based dashboard access.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
