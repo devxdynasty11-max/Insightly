@@ -6,6 +6,9 @@ export interface WebsiteRecord {
   tracking_key_hash: string;
   dashboard_key_hash: string;
   created_at: string;
+  aliases?: string[];
+  secondary_tracking_key_hashes?: string[];
+  secondary_dashboard_key_hashes?: string[];
 }
 
 export interface VisitorRecord {

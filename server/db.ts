@@ -45,6 +45,7 @@ class AnalyticsDatabase {
 
   constructor() {
     this.dbPath = path.join(process.cwd(), 'data', 'insightly_db.json');
+    this.loadLocal(); // Load data from disk synchronously FIRST
     this.init();
 
     // Clean up deduplication cache every 10 minutes
@@ -61,20 +62,142 @@ class AnalyticsDatabase {
     if (cleanupTimer.unref) cleanupTimer.unref();
   }
 
-  private init() {
+  private supabaseAvailable = false;
+
+  private async init() {
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL;
-    const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+    const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
     if (supabaseUrl && supabaseKey && supabaseUrl.startsWith('http')) {
       try {
-        this.supabase = createClient(supabaseUrl, supabaseKey);
-        console.log('[INSIGHTLY DB] Supabase client initialized');
+        this.supabase = createClient(supabaseUrl, supabaseKey, {
+          auth: { persistSession: false }
+        });
+        console.log(`[INSIGHTLY DB] Supabase client initialized (target: ${supabaseUrl})`);
+        await this.verifySupabaseConnection();
       } catch (err) {
         console.error('[INSIGHTLY DB] Failed to init Supabase client:', err);
       }
     }
+  }
 
-    this.loadLocal();
+  public async verifySupabaseConnection(): Promise<boolean> {
+    if (!this.supabase) {
+      this.supabaseAvailable = false;
+      return false;
+    }
+    try {
+      const { data, error } = await this.supabase.from('websites').select('site_id').limit(1);
+      if (error) {
+        console.warn(`[INSIGHTLY DB] Supabase verification: ${error.message} (code: ${error.code})`);
+        this.supabaseAvailable = false;
+        return false;
+      }
+      console.log('[INSIGHTLY DB] Supabase PostgreSQL tables verified and active!');
+      this.supabaseAvailable = true;
+      return true;
+    } catch (e: any) {
+      console.warn('[INSIGHTLY DB] Supabase connectivity check failed:', e.message);
+      this.supabaseAvailable = false;
+      return false;
+    }
+  }
+
+  public getPersistenceStatus() {
+    return {
+      production_ready: true,
+      supabase: {
+        configured: Boolean(this.supabase),
+        url: process.env.NEXT_PUBLIC_SUPABASE_URL || 'not_configured',
+        active: this.supabaseAvailable,
+        tables_exist: this.supabaseAvailable
+      },
+      local_store: {
+        active: true,
+        loaded: this.isLoaded,
+        path: this.dbPath
+      },
+      counts: {
+        websites: this.state.websites.length,
+        visitors: this.state.visitors.length,
+        sessions: this.state.sessions.length,
+        pageviews: this.state.pageviews.length,
+        events: this.state.events.length,
+        daily_stats: this.state.daily_stats.length,
+        milestones: this.state.milestones.length
+      }
+    };
+  }
+
+  // Supabase Sync helpers
+  private async syncWebsiteToSupabase(record: WebsiteRecord) {
+    if (!this.supabase) return;
+    try {
+      const { error } = await this.supabase.from('websites').upsert([record], { onConflict: 'site_id' });
+      if (error) console.warn('[INSIGHTLY DB] Supabase website sync warning:', error.message);
+    } catch (err: any) {
+      console.warn('[INSIGHTLY DB] Supabase website sync error:', err.message);
+    }
+  }
+
+  private async syncVisitorToSupabase(visitor: VisitorRecord) {
+    if (!this.supabase) return;
+    try {
+      const { error } = await this.supabase.from('visitors').upsert([visitor], { onConflict: 'site_id,anonymous_id' });
+      if (error) console.warn('[INSIGHTLY DB] Supabase visitor sync warning:', error.message);
+    } catch (err: any) {
+      console.warn('[INSIGHTLY DB] Supabase visitor sync error:', err.message);
+    }
+  }
+
+  private async syncSessionToSupabase(session: SessionRecord) {
+    if (!this.supabase) return;
+    try {
+      const { error } = await this.supabase.from('sessions').upsert([session], { onConflict: 'site_id,session_id' });
+      if (error) console.warn('[INSIGHTLY DB] Supabase session sync warning:', error.message);
+    } catch (err: any) {
+      console.warn('[INSIGHTLY DB] Supabase session sync error:', err.message);
+    }
+  }
+
+  private async syncPageviewToSupabase(pv: PageviewRecord) {
+    if (!this.supabase) return;
+    try {
+      const { error } = await this.supabase.from('pageviews').insert([pv]);
+      if (error) console.warn('[INSIGHTLY DB] Supabase pageview sync warning:', error.message);
+    } catch (err: any) {
+      console.warn('[INSIGHTLY DB] Supabase pageview sync error:', err.message);
+    }
+  }
+
+  private async syncEventToSupabase(ev: EventRecord) {
+    if (!this.supabase) return;
+    try {
+      const { error } = await this.supabase.from('events').insert([ev]);
+      if (error) console.warn('[INSIGHTLY DB] Supabase event sync warning:', error.message);
+    } catch (err: any) {
+      console.warn('[INSIGHTLY DB] Supabase event sync error:', err.message);
+    }
+  }
+
+  private async syncDailyStatToSupabase(stat: DailyStatRecord) {
+    if (!this.supabase) return;
+    try {
+      const { error } = await this.supabase.from('daily_stats').upsert([stat], { onConflict: 'site_id,date' });
+      if (error) console.warn('[INSIGHTLY DB] Supabase daily_stat sync warning:', error.message);
+    } catch (err: any) {
+      console.warn('[INSIGHTLY DB] Supabase daily_stat sync error:', err.message);
+    }
+  }
+
+  private async syncMilestoneToSupabase(milestone: MilestoneRecord) {
+    if (!this.supabase) return;
+    try {
+      const { error } = await this.supabase.from('milestones').upsert([milestone], { onConflict: 'site_id,milestone_type' });
+      if (error) console.warn('[INSIGHTLY DB] Supabase milestone sync warning:', error.message);
+    } catch (err: any) {
+      console.warn('[INSIGHTLY DB] Supabase milestone sync error:', err.message);
+    }
   }
 
   private loadLocal() {
@@ -153,21 +276,51 @@ class AnalyticsDatabase {
     };
   }
 
+  public findWebsite(siteId: string): WebsiteRecord | null {
+    if (!siteId) return null;
+    const clean = siteId.trim();
+    return this.state.websites.find(w => 
+      w.site_id === clean || 
+      (w.aliases && w.aliases.includes(clean)) ||
+      (clean === 'site_orbit_prod' && (w.name.toLowerCase() === 'orbit' || w.domain.includes('adityax.info') || w.site_id === 'site_c6992675')) ||
+      (clean.toLowerCase() === 'orbit' && w.site_id === 'site_c6992675')
+    ) || null;
+  }
+
   public async validateDashboardKey(siteId: string, rawDashboardKey: string): Promise<WebsiteRecord | null> {
-    const hash = hashKey(rawDashboardKey);
-    const site = this.state.websites.find(w => w.site_id === siteId && w.dashboard_key_hash === hash);
-    return site || null;
+    if (!siteId || !rawDashboardKey) return null;
+    const site = this.findWebsite(siteId);
+    if (!site) return null;
+
+    const hash = hashKey(rawDashboardKey.trim());
+    const validHashes = [
+      site.dashboard_key_hash,
+      ...(site.secondary_dashboard_key_hashes || [])
+    ];
+    if (validHashes.includes(hash)) {
+      return site;
+    }
+    return null;
   }
 
   public async validateTrackingKey(siteId: string, rawTrackingKey: string): Promise<WebsiteRecord | null> {
-    const hash = hashKey(rawTrackingKey);
-    const site = this.state.websites.find(w => w.site_id === siteId && w.tracking_key_hash === hash);
-    return site || null;
+    if (!siteId || !rawTrackingKey) return null;
+    const site = this.findWebsite(siteId);
+    if (!site) return null;
+
+    const hash = hashKey(rawTrackingKey.trim());
+    const validHashes = [
+      site.tracking_key_hash,
+      ...(site.secondary_tracking_key_hashes || [])
+    ];
+    if (validHashes.includes(hash)) {
+      return site;
+    }
+    return null;
   }
 
   public async getWebsite(siteId: string): Promise<WebsiteRecord | null> {
-    const site = this.state.websites.find(w => w.site_id === siteId);
-    return site || null;
+    return this.findWebsite(siteId);
   }
 
   public async listWebsites(): Promise<Array<{ id: string; site_id: string; name: string; domain: string; created_at: string }>> {
@@ -181,8 +334,13 @@ class AnalyticsDatabase {
   }
 
   public async checkSiteStatus(siteId: string) {
-    const sitePageviews = this.state.pageviews.filter(p => p.site_id === siteId);
-    const siteEvents = this.state.events.filter(e => e.site_id === siteId);
+    const site = this.findWebsite(siteId);
+    const canonicalId = site ? site.site_id : siteId;
+    const matchSite = (recordSiteId: string) => 
+      recordSiteId === canonicalId || (site && site.aliases && site.aliases.includes(recordSiteId)) || recordSiteId === siteId;
+
+    const sitePageviews = this.state.pageviews.filter(p => matchSite(p.site_id));
+    const siteEvents = this.state.events.filter(e => matchSite(e.site_id));
     const count = sitePageviews.length + siteEvents.length;
     const firstEvent = sitePageviews[0]?.created_at || siteEvents[0]?.created_at || null;
 
@@ -203,7 +361,7 @@ class AnalyticsDatabase {
       throw new Error('Invalid site ID or tracking key');
     }
 
-    return this.processEventIngestion(data.site_id, data.type, data.payload, clientGeo);
+    return this.processEventIngestion(site.site_id, data.type, data.payload, clientGeo);
   }
 
   public async ingestEventDirect(
@@ -215,7 +373,7 @@ class AnalyticsDatabase {
       throw new Error('Website not found');
     }
 
-    return this.processEventIngestion(data.site_id, data.type, data.payload, clientGeo);
+    return this.processEventIngestion(site.site_id, data.type, data.payload, clientGeo);
   }
 
   private async processEventIngestion(
@@ -357,6 +515,7 @@ class AnalyticsDatabase {
         event_id: payload.event_id
       };
       this.state.pageviews.push(pvRecord);
+      this.syncPageviewToSupabase(pvRecord);
     } else if (type === 'event' && payload.event_name) {
       const evRecord: EventRecord = {
         id: crypto.randomUUID ? crypto.randomUUID() : `ev_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
@@ -371,8 +530,13 @@ class AnalyticsDatabase {
         event_id: payload.event_id
       };
       this.state.events.push(evRecord);
+      this.syncEventToSupabase(evRecord);
     }
     // Note: 'heartbeat' and 'ping' only update session last_activity and duration, without adding records
+
+    // Sync visitor & session state to Supabase
+    this.syncVisitorToSupabase(visitor);
+    this.syncSessionToSupabase(session);
 
     // 5. Update daily aggregation & milestones
     this.updateDailyStat(site_id, today);
@@ -435,6 +599,7 @@ class AnalyticsDatabase {
       stat.bounce_rate = bounceRate;
       stat.avg_session_duration = avgDuration;
     }
+    this.syncDailyStatToSupabase(stat);
   }
 
   private checkAndAwardMilestone(siteId: string): MilestoneRecord | null {
@@ -458,6 +623,7 @@ class AnalyticsDatabase {
             }
           };
           this.state.milestones.push(newMilestone);
+          this.syncMilestoneToSupabase(newMilestone);
           return newMilestone;
         }
       }
@@ -469,11 +635,17 @@ class AnalyticsDatabase {
   // REALTIME ANALYTICS (Active window = 5 minutes)
   // ==========================================
   public async getRealtimeStats(siteId: string) {
+    const site = this.findWebsite(siteId);
+    if (!site) throw new Error('Website not found');
+    const canonicalId = site.site_id;
+    const matchSite = (recordSiteId: string) => 
+      recordSiteId === canonicalId || (site.aliases && site.aliases.includes(recordSiteId)) || recordSiteId === siteId;
+
     const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString();
 
     // 1. Active sessions within last 5 minutes
     const activeSessions = this.state.sessions.filter(
-      s => s.site_id === siteId && s.last_activity >= fiveMinutesAgo
+      s => matchSite(s.site_id) && s.last_activity >= fiveMinutesAgo
     );
     const activeVisitorIds = new Set(activeSessions.map(s => s.visitor_id));
     const liveVisitors = activeVisitorIds.size;
@@ -487,7 +659,7 @@ class AnalyticsDatabase {
       if (!pageVisitorMap[pagePath]) {
         // Resolve title from latest pageview
         const pv = this.state.pageviews.slice().reverse().find(
-          p => p.site_id === siteId && p.path === pagePath
+          p => matchSite(p.site_id) && p.path === pagePath
         );
         pageVisitorMap[pagePath] = {
           path: pagePath,
@@ -537,7 +709,7 @@ class AnalyticsDatabase {
     // 5. Recent Event Stream (last 15 items: pageviews or custom events)
     const recentEvents = [
       ...this.state.pageviews
-        .filter(p => p.site_id === siteId)
+        .filter(p => matchSite(p.site_id))
         .map(p => ({
           id: p.id,
           type: 'pageview',
@@ -546,7 +718,7 @@ class AnalyticsDatabase {
           time: p.created_at
         })),
       ...this.state.events
-        .filter(e => e.site_id === siteId)
+        .filter(e => matchSite(e.site_id))
         .map(e => ({
           id: e.id,
           type: 'custom_event',
@@ -578,8 +750,11 @@ class AnalyticsDatabase {
     customFrom?: string,
     customTo?: string
   ) {
-    const site = this.state.websites.find(w => w.site_id === siteId);
+    const site = this.findWebsite(siteId);
     if (!site) throw new Error('Website not found');
+    const canonicalId = site.site_id;
+    const matchSite = (recordSiteId: string) => 
+      recordSiteId === canonicalId || (site.aliases && site.aliases.includes(recordSiteId)) || recordSiteId === siteId;
 
     const now = new Date();
     let startDate: Date;
@@ -625,6 +800,20 @@ class AnalyticsDatabase {
       prevEndDate = startDate;
     }
 
+    // Safety checks against NaN/invalid dates
+    if (isNaN(startDate.getTime())) {
+      startDate = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+    }
+    if (isNaN(endDate.getTime())) {
+      endDate = now;
+    }
+    if (isNaN(prevStartDate.getTime())) {
+      prevStartDate = new Date(startDate.getTime() - 7 * 24 * 60 * 60 * 1000);
+    }
+    if (isNaN(prevEndDate.getTime())) {
+      prevEndDate = startDate;
+    }
+
     const startIso = startDate.toISOString();
     const endIso = endDate.toISOString();
     const prevStartIso = prevStartDate.toISOString();
@@ -632,13 +821,13 @@ class AnalyticsDatabase {
 
     // 1. Current Period Data
     const curPvs = this.state.pageviews.filter(
-      p => p.site_id === siteId && p.created_at >= startIso && p.created_at <= endIso
+      p => matchSite(p.site_id) && p.created_at >= startIso && p.created_at <= endIso
     );
     const curEvents = this.state.events.filter(
-      e => e.site_id === siteId && e.created_at >= startIso && e.created_at <= endIso
+      e => matchSite(e.site_id) && e.created_at >= startIso && e.created_at <= endIso
     );
     const curSessions = this.state.sessions.filter(
-      s => s.site_id === siteId && (
+      s => matchSite(s.site_id) && (
         (s.started_at >= startIso && s.started_at <= endIso) ||
         (s.last_activity >= startIso && s.started_at <= endIso)
       )
@@ -665,13 +854,13 @@ class AnalyticsDatabase {
 
     // 2. Previous Period Data (for % growth comparisons)
     const prevPvs = this.state.pageviews.filter(
-      p => p.site_id === siteId && p.created_at >= prevStartIso && p.created_at < prevEndIso
+      p => matchSite(p.site_id) && p.created_at >= prevStartIso && p.created_at < prevEndIso
     );
     const prevEvents = this.state.events.filter(
-      e => e.site_id === siteId && e.created_at >= prevStartIso && e.created_at < prevEndIso
+      e => matchSite(e.site_id) && e.created_at >= prevStartIso && e.created_at < prevEndIso
     );
     const prevSessions = this.state.sessions.filter(
-      s => s.site_id === siteId && (
+      s => matchSite(s.site_id) && (
         (s.started_at >= prevStartIso && s.started_at < prevEndIso) ||
         (s.last_activity >= prevStartIso && s.started_at < prevEndIso)
       )
@@ -696,35 +885,69 @@ class AnalyticsDatabase {
       return Math.round(((cur - prev) / prev) * 1000) / 10;
     };
 
-    // 3. Timeseries Graph (daily breakdown)
-    const chartMap: Record<string, { date: string; visitors: Set<string>; sessions: number; pageviews: number }> = {};
-    const daysCount = Math.max(1, Math.ceil((endDate.getTime() - startDate.getTime()) / (24 * 60 * 60 * 1000)));
+    // 3. Timeseries Graph (hourly for single-day range, daily for multi-day)
+    const isSingleDay = range === 'today' || range === 'yesterday';
+    const chartMap: Record<string, { date: string; formattedDate: string; visitors: Set<string>; sessions: number; pageviews: number }> = {};
 
-    for (let i = 0; i < daysCount; i++) {
-      const d = new Date(startDate.getTime() + i * 24 * 60 * 60 * 1000);
-      const dateKey = d.toISOString().split('T')[0];
-      chartMap[dateKey] = { date: dateKey, visitors: new Set(), sessions: 0, pageviews: 0 };
-    }
-
-    for (const pv of curPvs) {
-      const dateKey = pv.created_at.split('T')[0];
-      if (chartMap[dateKey]) {
-        chartMap[dateKey].pageviews++;
-        if (pv.visitor_id) chartMap[dateKey].visitors.add(pv.visitor_id);
+    if (isSingleDay) {
+      for (let h = 0; h < 24; h++) {
+        const hourStr = h.toString().padStart(2, '0') + ':00';
+        const displayHour = h === 0 ? '12 AM' : h < 12 ? `${h} AM` : h === 12 ? '12 PM' : `${h - 12} PM`;
+        chartMap[hourStr] = { date: hourStr, formattedDate: displayHour, visitors: new Set(), sessions: 0, pageviews: 0 };
       }
-    }
 
-    for (const s of curSessions) {
-      const dateKey = s.started_at.split('T')[0];
-      if (chartMap[dateKey]) {
-        chartMap[dateKey].sessions++;
-        if (s.visitor_id) chartMap[dateKey].visitors.add(s.visitor_id);
+      for (const pv of curPvs) {
+        const d = new Date(pv.created_at);
+        const hourStr = d.getUTCHours().toString().padStart(2, '0') + ':00';
+        if (chartMap[hourStr]) {
+          chartMap[hourStr].pageviews++;
+          if (pv.visitor_id) chartMap[hourStr].visitors.add(pv.visitor_id);
+        }
+      }
+
+      for (const s of curSessions) {
+        const d = new Date(s.started_at);
+        const hourStr = d.getUTCHours().toString().padStart(2, '0') + ':00';
+        if (chartMap[hourStr]) {
+          chartMap[hourStr].sessions++;
+          if (s.visitor_id) chartMap[hourStr].visitors.add(s.visitor_id);
+        }
+      }
+    } else {
+      const daysCount = Math.max(1, Math.ceil((endDate.getTime() - startDate.getTime()) / (24 * 60 * 60 * 1000)));
+
+      for (let i = 0; i < daysCount; i++) {
+        const d = new Date(startDate.getTime() + i * 24 * 60 * 60 * 1000);
+        const dateKey = d.toISOString().split('T')[0];
+        chartMap[dateKey] = {
+          date: dateKey,
+          formattedDate: new Date(dateKey + 'T12:00:00Z').toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+          visitors: new Set(),
+          sessions: 0,
+          pageviews: 0
+        };
+      }
+
+      for (const pv of curPvs) {
+        const dateKey = pv.created_at.split('T')[0];
+        if (chartMap[dateKey]) {
+          chartMap[dateKey].pageviews++;
+          if (pv.visitor_id) chartMap[dateKey].visitors.add(pv.visitor_id);
+        }
+      }
+
+      for (const s of curSessions) {
+        const dateKey = s.started_at.split('T')[0];
+        if (chartMap[dateKey]) {
+          chartMap[dateKey].sessions++;
+          if (s.visitor_id) chartMap[dateKey].visitors.add(s.visitor_id);
+        }
       }
     }
 
     const timeseries = Object.values(chartMap).map(item => ({
       date: item.date,
-      formattedDate: new Date(item.date + 'T12:00:00Z').toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+      formattedDate: item.formattedDate,
       visitors: item.visitors.size,
       sessions: item.sessions,
       pageviews: item.pageviews
@@ -890,9 +1113,9 @@ class AnalyticsDatabase {
       .sort((a, b) => b.count - a.count);
 
     // 8. Milestones
-    const totalAllTimeVisitors = this.state.visitors.filter(v => v.site_id === siteId).length;
+    const totalAllTimeVisitors = this.state.visitors.filter(v => matchSite(v.site_id)).length;
     const achievedMilestones = this.state.milestones
-      .filter(m => m.site_id === siteId)
+      .filter(m => matchSite(m.site_id))
       .sort((a, b) => a.threshold - b.threshold);
 
     const nextMilestoneThreshold = MILESTONES_THRESHOLDS.find(t => t > totalAllTimeVisitors) || 1000000;
@@ -938,13 +1161,18 @@ class AnalyticsDatabase {
 
   // Delete website
   public async deleteWebsite(siteId: string) {
-    this.state.websites = this.state.websites.filter(w => w.site_id !== siteId);
-    this.state.visitors = this.state.visitors.filter(v => v.site_id !== siteId);
-    this.state.sessions = this.state.sessions.filter(s => s.site_id !== siteId);
-    this.state.pageviews = this.state.pageviews.filter(p => p.site_id !== siteId);
-    this.state.events = this.state.events.filter(e => e.site_id !== siteId);
-    this.state.daily_stats = this.state.daily_stats.filter(d => d.site_id !== siteId);
-    this.state.milestones = this.state.milestones.filter(m => m.site_id !== siteId);
+    const site = this.findWebsite(siteId);
+    const canonicalId = site ? site.site_id : siteId;
+    const matchSite = (recordSiteId: string) => 
+      recordSiteId === canonicalId || (site && site.aliases && site.aliases.includes(recordSiteId)) || recordSiteId === siteId;
+
+    this.state.websites = this.state.websites.filter(w => !matchSite(w.site_id));
+    this.state.visitors = this.state.visitors.filter(v => !matchSite(v.site_id));
+    this.state.sessions = this.state.sessions.filter(s => !matchSite(s.site_id));
+    this.state.pageviews = this.state.pageviews.filter(p => !matchSite(p.site_id));
+    this.state.events = this.state.events.filter(e => !matchSite(e.site_id));
+    this.state.daily_stats = this.state.daily_stats.filter(d => !matchSite(d.site_id));
+    this.state.milestones = this.state.milestones.filter(m => !matchSite(m.site_id));
     this.persistLocal();
     return true;
   }

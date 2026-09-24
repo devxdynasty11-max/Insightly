@@ -39,7 +39,8 @@ async function startServer() {
       status: 'ok',
       service: 'INSIGHTLY Analytics Engine',
       version: '1.3.0',
-      timestamp: new Date().toISOString()
+      timestamp: new Date().toISOString(),
+      persistence: db.getPersistenceStatus()
     });
   });
 
@@ -177,18 +178,24 @@ async function startServer() {
       const customFrom = req.query.from as string;
       const customTo = req.query.to as string;
 
+      console.log(`[API /api/dashboard/stats] Request: siteId=${siteId}, range=${range}`);
+
       if (!siteId || !dashboardKey) {
+        console.warn(`[API /api/dashboard/stats] Missing credentials: siteId=${siteId}, hasKey=${Boolean(dashboardKey)}`);
         return res.status(401).json({ error: 'Website ID and Dashboard Key are required' });
       }
 
       const site = await db.validateDashboardKey(siteId, dashboardKey);
       if (!site) {
+        console.warn(`[API /api/dashboard/stats] Unauthorized: invalid key for siteId=${siteId}`);
         return res.status(401).json({ error: 'Invalid Website ID or Dashboard Access Key' });
       }
 
       const stats = await db.getDashboardStats(siteId, range, customFrom, customTo);
+      console.log(`[API /api/dashboard/stats] Returned stats for site: ${site.name} (${site.site_id})`);
       return res.json(stats);
     } catch (err: any) {
+      console.error(`[API /api/dashboard/stats] Server error:`, err);
       return res.status(500).json({ error: 'Failed to retrieve dashboard stats', message: err.message });
     }
   });
