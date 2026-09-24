@@ -9,9 +9,18 @@ async function startServer() {
   const app = express();
   const PORT = 3000;
 
-  // Middleware for JSON payloads (with 64kb max limit for collector protection)
+  // Middleware for JSON & beacon payloads (with 64kb max limit for collector protection)
   app.use(express.json({ limit: '64kb' }));
+  app.use(express.text({ type: ['text/plain', 'application/json'], limit: '64kb' }));
   app.use(express.urlencoded({ extended: true }));
+  app.use((req, _res, next) => {
+    if (typeof req.body === 'string') {
+      try {
+        req.body = JSON.parse(req.body);
+      } catch {}
+    }
+    next();
+  });
 
   // CORS headers so external websites can send events to this analytics instance
   app.use((req, res, next) => {
@@ -29,16 +38,16 @@ async function startServer() {
     res.json({
       status: 'ok',
       service: 'INSIGHTLY Analytics Engine',
-      version: '1.2.0',
+      version: '1.3.0',
       timestamp: new Date().toISOString()
     });
   });
 
-  // Serve tracker.js directly with proper caching headers
+  // Serve tracker.js directly with proper headers
   app.get('/tracker.js', (req: Request, res: Response) => {
     const trackerPath = path.join(process.cwd(), 'public', 'tracker.js');
     res.setHeader('Content-Type', 'application/javascript');
-    res.setHeader('Cache-Control', 'public, max-age=3600');
+    res.setHeader('Cache-Control', 'no-cache, must-revalidate');
     res.sendFile(trackerPath);
   });
 
@@ -47,7 +56,7 @@ async function startServer() {
   // ==========================================
   app.post(
     '/api/collect',
-    rateLimit(180, 60 * 1000, 'collect'), // 180 requests/min per IP
+    rateLimit(300, 60 * 1000, 'collect'), // 300 requests/min per IP for real-time tracking
     async (req: Request, res: Response) => {
       try {
         const body = req.body as IngestionPayload;

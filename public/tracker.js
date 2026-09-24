@@ -1,17 +1,19 @@
 /**
  * INSIGHTLY Analytics Tracker
- * Lightweight, privacy-conscious website analytics
- * Version: 1.2.0 (< 4KB minified)
+ * Lightweight, privacy-conscious website analytics (< 4KB)
+ * Version: 1.3.0
  * License: MIT
  */
 (function () {
   'use strict';
 
-  // Prevent multiple initializations
-  if (window.__insightly_initialized) return;
+  // 1. Guard against multiple tracker initializations
+  if (window.__insightly_initialized) {
+    return;
+  }
   window.__insightly_initialized = true;
 
-  // Locate the script tag that loaded tracker.js
+  // 2. Locate the script tag that loaded tracker.js
   var scriptTag = document.currentScript || (function () {
     var scripts = document.getElementsByTagName('script');
     for (var i = scripts.length - 1; i >= 0; i--) {
@@ -24,18 +26,22 @@
   var siteId = scriptTag ? scriptTag.getAttribute('data-site-id') : null;
   var trackingKey = scriptTag ? scriptTag.getAttribute('data-tracking-key') : null;
 
-  // Extract endpoint base URL (default to origin of the script, or current window origin)
+  // Endpoint base URL (default to origin of script, or current window origin)
   var scriptSrc = scriptTag && scriptTag.src ? scriptTag.src : '';
   var endpoint = '';
   if (scriptSrc && scriptSrc.indexOf('http') === 0) {
-    var a = document.createElement('a');
-    a.href = scriptSrc;
-    endpoint = a.protocol + '//' + a.host + '/api/collect';
+    try {
+      var a = document.createElement('a');
+      a.href = scriptSrc;
+      endpoint = a.protocol + '//' + a.host + '/api/collect';
+    } catch (e) {
+      endpoint = window.location.origin + '/api/collect';
+    }
   } else {
     endpoint = window.location.origin + '/api/collect';
   }
 
-  // Fallback / config override via window.insightlyConfig
+  // Fallback or explicit override via window.insightlyConfig
   if (window.insightlyConfig) {
     siteId = window.insightlyConfig.siteId || siteId;
     trackingKey = window.insightlyConfig.trackingKey || trackingKey;
@@ -49,7 +55,7 @@
     return;
   }
 
-  // Generate random IDs
+  // 3. ID Generator
   function generateId(prefix) {
     var chars = 'abcdefghijklmnopqrstuvwxyz0123456789';
     var res = prefix ? prefix + '_' : '';
@@ -59,43 +65,51 @@
     return res;
   }
 
-  // Local storage / session storage accessors with error safety
-  function getStorage(key, isSession) {
+  // 4. Storage with Memory Fallback (works even if localStorage is blocked)
+  var memStore = {};
+  function getStorage(key) {
     try {
-      var storage = isSession ? window.sessionStorage : window.localStorage;
-      return storage.getItem(key);
-    } catch (e) {
-      return null;
-    }
-  }
-
-  function setStorage(key, value, isSession) {
-    try {
-      var storage = isSession ? window.sessionStorage : window.localStorage;
-      storage.setItem(key, value);
+      if (window.localStorage) {
+        var v = window.localStorage.getItem(key);
+        if (v !== null) return v;
+      }
     } catch (e) {}
+    return memStore[key] || null;
   }
 
-  // Anonymous Visitor ID (Persists in localStorage, privacy-safe random string)
+  function setStorage(key, value) {
+    try {
+      if (window.localStorage) {
+        window.localStorage.setItem(key, value);
+      }
+    } catch (e) {}
+    memStore[key] = value;
+  }
+
+  // 5. Visitor Identification (Persists indefinitely across reloads/sessions)
   var visitorId = getStorage('_ins_vid');
   if (!visitorId) {
     visitorId = generateId('v');
     setStorage('_ins_vid', visitorId);
   }
 
-  // Session ID (30-minute idle expiration)
+  // 6. Session Logic (30-minute inactivity timeout)
   var SESSION_TIMEOUT_MS = 30 * 60 * 1000;
-  var lastActivity = parseInt(getStorage('_ins_last_act', true) || '0', 10);
-  var sessionId = getStorage('_ins_sid', true);
-  var now = Date.now();
 
-  if (!sessionId || !lastActivity || now - lastActivity > SESSION_TIMEOUT_MS) {
-    sessionId = generateId('s');
-    setStorage('_ins_sid', sessionId, true);
+  function getActiveSessionId() {
+    var now = Date.now();
+    var lastAct = parseInt(getStorage('_ins_last_act') || '0', 10);
+    var sid = getStorage('_ins_sid');
+
+    if (!sid || !lastAct || (now - lastAct > SESSION_TIMEOUT_MS)) {
+      sid = generateId('s');
+      setStorage('_ins_sid', sid);
+    }
+    setStorage('_ins_last_act', now.toString());
+    return sid;
   }
-  setStorage('_ins_last_act', now.toString(), true);
 
-  // Parse Device Type
+  // 7. Device, Browser, OS Detectors
   function getDeviceType() {
     var ua = navigator.userAgent;
     if (/(tablet|ipad|playbook|silk)|(android(?!.*mobi))/i.test(ua)) {
@@ -107,7 +121,6 @@
     return 'desktop';
   }
 
-  // Parse Browser
   function getBrowser() {
     var ua = navigator.userAgent;
     if (ua.indexOf('Firefox') > -1) return 'Firefox';
@@ -120,7 +133,6 @@
     return 'Unknown';
   }
 
-  // Parse OS
   function getOS() {
     var ua = navigator.userAgent;
     if (ua.indexOf('Win') > -1) return 'Windows';
@@ -134,7 +146,6 @@
     return 'Unknown';
   }
 
-  // Parse UTM parameters from current URL
   function getUtmParams() {
     try {
       var search = window.location.search;
@@ -152,48 +163,50 @@
     }
   }
 
-  // Page load & duration timers
   var pageStartTime = Date.now();
   var lastUrl = window.location.href;
   var currentReferrer = document.referrer || '';
+  var lastTrackedPageview = { path: '', timestamp: 0 };
 
-  // Core Send Function
-  function sendEvent(eventType, payload) {
-    // Refresh session activity
-    setStorage('_ins_last_act', Date.now().toString(), true);
+  // 8. Event Sender
+  function sendEvent(eventType, extra) {
+    var sid = getActiveSessionId();
+    var nowIso = new Date().toISOString();
+    var currentPath = window.location.pathname + window.location.search;
 
     var data = {
       site_id: siteId,
       tracking_key: trackingKey,
       type: eventType,
       payload: {
+        event_id: generateId('evt'),
         url: window.location.href,
-        path: window.location.pathname + window.location.search,
+        path: currentPath,
         title: document.title || 'Untitled',
         referrer: currentReferrer,
         anonymous_id: visitorId,
-        session_id: sessionId,
+        session_id: sid,
         device_type: getDeviceType(),
         browser: getBrowser(),
         os: getOS(),
         screen_size: (window.screen.width || 0) + 'x' + (window.screen.height || 0),
         language: (navigator.language || 'en').split('-')[0].toLowerCase(),
         utm: getUtmParams(),
-        timestamp: new Date().toISOString()
+        timestamp: nowIso
       }
     };
 
-    if (payload) {
-      for (var k in payload) {
-        if (payload.hasOwnProperty(k)) {
-          data.payload[k] = payload[k];
+    if (extra) {
+      for (var k in extra) {
+        if (extra.hasOwnProperty(k)) {
+          data.payload[k] = extra[k];
         }
       }
     }
 
     var jsonStr = JSON.stringify(data);
 
-    // Prefer navigator.sendBeacon for non-blocking exit & event transmission
+    // Prefer navigator.sendBeacon
     var sent = false;
     if (navigator.sendBeacon) {
       try {
@@ -216,41 +229,69 @@
     }
   }
 
-  // Track Page View
+  // 9. Pageview Tracking with Strict Deduplication
   function trackPageView() {
-    pageStartTime = Date.now();
+    var currentPath = window.location.pathname + window.location.search;
+    var now = Date.now();
+
+    // Prevent duplicate pageviews for the same path within 600ms (React StrictMode / dual router mount)
+    if (lastTrackedPageview.path === currentPath && (now - lastTrackedPageview.timestamp < 600)) {
+      return;
+    }
+
+    lastTrackedPageview = { path: currentPath, timestamp: now };
+    pageStartTime = now;
     sendEvent('pageview');
   }
 
-  // Track Page Leave (duration update)
+  // 10. Page Duration Tracking
   function trackPageDuration() {
     var durationSec = Math.max(1, Math.round((Date.now() - pageStartTime) / 1000));
     sendEvent('ping', { duration: durationSec });
   }
 
-  // Initial Page View
-  if (document.readyState === 'complete' || document.readyState === 'interactive') {
-    trackPageView();
-  } else {
-    window.addEventListener('DOMContentLoaded', trackPageView, { once: true });
+  // 11. Lightweight Realtime Heartbeat (every 25 seconds when visible)
+  var heartbeatInterval = null;
+  function startHeartbeat() {
+    if (heartbeatInterval) clearInterval(heartbeatInterval);
+    heartbeatInterval = setInterval(function () {
+      if (document.visibilityState === 'visible') {
+        var durationSec = Math.max(1, Math.round((Date.now() - pageStartTime) / 1000));
+        sendEvent('heartbeat', { duration: durationSec });
+      }
+    }, 25000);
   }
 
-  // SPA Navigation Interceptors (React, Next.js, Vite, Vue, WordPress SPA)
-  function handleUrlChange() {
-    if (window.location.href !== lastUrl) {
-      // Send duration for old page
-      trackPageDuration();
-      currentReferrer = lastUrl;
-      lastUrl = window.location.href;
+  // 12. Initial Load
+  if (document.readyState === 'complete' || document.readyState === 'interactive') {
+    trackPageView();
+    startHeartbeat();
+  } else {
+    window.addEventListener('DOMContentLoaded', function () {
       trackPageView();
-    }
+      startHeartbeat();
+    }, { once: true });
+  }
+
+  // 13. SPA Navigation Interceptor (React, Next.js, Vite, Vue, Angular, WordPress SPA)
+  var urlChangeTimeout = null;
+  function handleUrlChange() {
+    if (urlChangeTimeout) clearTimeout(urlChangeTimeout);
+    urlChangeTimeout = setTimeout(function () {
+      if (window.location.href !== lastUrl) {
+        trackPageDuration();
+        currentReferrer = lastUrl;
+        lastUrl = window.location.href;
+        trackPageView();
+      }
+    }, 40);
   }
 
   var originalPushState = history.pushState;
   if (originalPushState) {
     history.pushState = function () {
       originalPushState.apply(this, arguments);
-      setTimeout(handleUrlChange, 50);
+      handleUrlChange();
     };
   }
 
@@ -258,23 +299,28 @@
   if (originalReplaceState) {
     history.replaceState = function () {
       originalReplaceState.apply(this, arguments);
-      setTimeout(handleUrlChange, 50);
+      handleUrlChange();
     };
   }
 
   window.addEventListener('popstate', handleUrlChange);
   window.addEventListener('hashchange', handleUrlChange);
 
-  // Send duration update when page is closed or hidden
+  // 14. Visibility and Exit Listeners
   document.addEventListener('visibilitychange', function () {
     if (document.visibilityState === 'hidden') {
       trackPageDuration();
+    } else if (document.visibilityState === 'visible') {
+      var durationSec = Math.max(1, Math.round((Date.now() - pageStartTime) / 1000));
+      sendEvent('heartbeat', { duration: durationSec });
     }
   });
 
-  window.addEventListener('pagehide', trackPageDuration);
+  window.addEventListener('pagehide', function () {
+    trackPageDuration();
+  });
 
-  // Public Custom Event API
+  // 15. Public Custom Event API
   window.insightly = {
     track: function (eventName, metadata) {
       if (!eventName || typeof eventName !== 'string') return;
@@ -286,6 +332,6 @@
     page: function () {
       trackPageView();
     },
-    version: '1.2.0'
+    version: '1.3.0'
   };
 })();

@@ -36,32 +36,54 @@ export const PlaygroundModal: React.FC<PlaygroundModalProps> = ({
   const [sending, setSending] = useState(false);
   const [referrer, setReferrer] = useState('https://google.com/search?q=orbit');
   const [customEventName, setCustomEventName] = useState('signup');
+  const [currentVid, setCurrentVid] = useState(() => {
+    let vid = localStorage.getItem('_ins_test_vid');
+    if (!vid) {
+      vid = 'v_' + Math.random().toString(36).substring(2, 8);
+      localStorage.setItem('_ins_test_vid', vid);
+    }
+    return vid;
+  });
+  const [currentSid, setCurrentSid] = useState(() => {
+    let sid = localStorage.getItem('_ins_test_sid');
+    if (!sid) {
+      sid = 's_' + Math.random().toString(36).substring(2, 8);
+      localStorage.setItem('_ins_test_sid', sid);
+    }
+    return sid;
+  });
 
   if (!isOpen) return null;
+
+  const handleNewVisitor = () => {
+    const newVid = 'v_' + Math.random().toString(36).substring(2, 8);
+    const newSid = 's_' + Math.random().toString(36).substring(2, 8);
+    localStorage.setItem('_ins_test_vid', newVid);
+    localStorage.setItem('_ins_test_sid', newSid);
+    setCurrentVid(newVid);
+    setCurrentSid(newSid);
+  };
+
+  const handleNewSession = () => {
+    const newSid = 's_' + Math.random().toString(36).substring(2, 8);
+    localStorage.setItem('_ins_test_sid', newSid);
+    setCurrentSid(newSid);
+  };
 
   const sendTrackerCall = async (type: 'pageview' | 'event', path: string, eventName?: string, metadata?: any) => {
     setSending(true);
     const now = new Date();
     const timeStr = now.toLocaleTimeString();
 
-    // Use persistent or generated anonymous ID
-    let anonId = localStorage.getItem('_ins_test_vid');
-    if (!anonId) {
-      anonId = 'test_v_' + Math.random().toString(36).substring(2, 10);
-      localStorage.setItem('_ins_test_vid', anonId);
-    }
-
-    let sessId = sessionStorage.getItem('_ins_test_sid');
-    if (!sessId) {
-      sessId = 'test_s_' + Math.random().toString(36).substring(2, 10);
-      sessionStorage.setItem('_ins_test_sid', sessId);
-    }
+    const anonId = currentVid;
+    const sessId = currentSid;
 
     const payload = {
       site_id: siteId,
       tracking_key: trackingKey,
       type,
       payload: {
+        event_id: 'evt_' + Math.random().toString(36).substring(2, 12),
         url: `https://${siteName.toLowerCase().replace(/\s+/g, '')}.example${path}`,
         path,
         title: `${siteName} — ${path === '/' ? 'Home' : path.replace('/', '')}`,
@@ -226,6 +248,30 @@ export const PlaygroundModal: React.FC<PlaygroundModalProps> = ({
                 >
                   Docs (/docs)
                 </button>
+              </div>
+
+              {/* Identity & Session Control Bar */}
+              <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-neutral-950/80 px-3 py-2 text-xs border border-neutral-800">
+                <div className="flex items-center gap-3 text-neutral-400 font-mono text-[11px]">
+                  <span>Visitor: <strong className="text-emerald-400">{currentVid}</strong></span>
+                  <span>Session: <strong className="text-teal-400">{currentSid}</strong></span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={handleNewSession}
+                    title="Simulate 30 min passing or a new visit session"
+                    className="rounded bg-neutral-800 hover:bg-neutral-700 text-neutral-200 px-2.5 py-1 text-[11px] font-semibold transition"
+                  >
+                    + New Session
+                  </button>
+                  <button
+                    onClick={handleNewVisitor}
+                    title="Simulate a completely new visitor"
+                    className="rounded bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/30 px-2.5 py-1 text-[11px] font-semibold transition"
+                  >
+                    + New Visitor
+                  </button>
+                </div>
               </div>
 
               {/* Page Body */}

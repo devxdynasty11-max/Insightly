@@ -32,6 +32,10 @@ export interface SessionRecord {
   exit_page?: string;
   duration: number; // seconds
   pageview_count: number;
+  referrer_domain?: string;
+  utm_source?: string;
+  utm_medium?: string;
+  utm_campaign?: string;
 }
 
 export interface PageviewRecord {
@@ -50,6 +54,7 @@ export interface PageviewRecord {
   utm_term?: string;
   utm_content?: string;
   created_at: string;
+  event_id?: string;
 }
 
 export interface EventRecord {
@@ -62,6 +67,7 @@ export interface EventRecord {
   referrer: string;
   metadata: Record<string, any>;
   created_at: string;
+  event_id?: string;
 }
 
 export interface DailyStatRecord {
@@ -87,8 +93,9 @@ export interface MilestoneRecord {
 export interface IngestionPayload {
   site_id: string;
   tracking_key: string;
-  type: 'pageview' | 'event' | 'ping';
+  type: 'pageview' | 'event' | 'ping' | 'heartbeat';
   payload: {
+    event_id?: string;
     url: string;
     path?: string;
     title?: string;
